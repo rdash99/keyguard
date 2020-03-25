@@ -28,7 +28,7 @@ const TEST_ext_privatekeys = TEST_ext_privatekeyWIFs.map(wif => BitcoinJS.ECPair
 const TEST_ext_privatekeys_hex = TEST_ext_privatekeys.map(pk => Nimiq.BufferUtils.toHex(pk));
 
 const TEST_ext_addresses = [
-    'tb1qsn4ehj7epnnaxdsfjgjeujumsxppt2tql9m9gl', // 0
+    'tb1qsn4ehj7epnnaxdsfjgjeujumsxppt2tql9m9gl', // 0 - This address received 0.08005992 tBTC on March 25, 2020
     'tb1qm37aps59r86g79jg5xh8ecgfqfncv92wzfyyx7', // 1
     'tb1qjpv0wk5p07kdack2ky8jk4dnwnfqgx5cmt3r6l', // 2
     'tb1qhwlha0zaj5ly6jpdeq8uzwk0dj0hfqs6kdu49e', // 3
@@ -122,6 +122,34 @@ async function main() {
         const address = getBech32Address(node, BitcoinJS.networks.testnet);
         console.log("Derived address", i, "equals TEST:", address === TEST_chg_addresses[i]);
     }
+
+    console.log("\nCreate transaction from external_0 to change_0");
+    // Using this tx as input: https://blockstream.info/testnet/api/tx/1683f5639e614ccd11b6542a502eb31ed0a76a04809d56c2ecbca5335c67eb32
+    const key_ext_0 = btc_ext_root.derive(0);
+
+    const psbt = new BitcoinJS.Psbt({ network: BitcoinJS.networks.testnet })
+        .addInput({
+            hash: '1683f5639e614ccd11b6542a502eb31ed0a76a04809d56c2ecbca5335c67eb32',
+            index: 1, // Our output was the second in the input tx
+            witnessUtxo: {
+                script: NodeBuffer.Buffer.from('001484eb9bcbd90ce7d3360992259e4b9b818215a960', 'hex'),
+                value: 1000000,
+            },
+        })
+        .addOutput({
+            address: TEST_chg_addresses[0],
+            value: 1000000,
+        })
+        .signInput(0, key_ext_0);
+
+    console.log(psbt);
+    console.log("Psbt Signature valid:", psbt.validateSignaturesOfInput(0));
+
+    psbt.finalizeAllInputs();
+
+    const tx = psbt.extractTransaction();
+    console.log("Tx:", tx);
+    console.log("Tx HEX:", tx.toHex()); // Use https://live.blockcypher.com/btc/decodetx/ to decode the transaction
 }
 
 main();
