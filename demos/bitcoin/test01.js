@@ -123,32 +123,165 @@ async function main() {
         console.log("Derived address", i, "equals TEST:", address === TEST_chg_addresses[i]);
     }
 
+    // Transaction Virtual Sizes
+    // Single input, single output: 110 bytes
+    // Single input, two outputs: 141 bytes
+    // Two inputs, single output: 178 bytes
+    // Two inputs, two outputs: 208 bytes
+
+    /**
+     * Constructs a transaction with inputs from a single address
+     *
+     * @param {{privateKey: Uint8Array}} key
+     * @param {{hash: string, index: number, witnessUtxo: {script: Buffer, value: number}}[]} inputs
+     * @param {string} to
+     * @param {number} amount
+     * @param {string} changeAddress
+     * @param {number} [feePerByte]
+     */
+    function makeTransaction(key, inputs, to, amount, changeAddress, feePerByte = 1) {
+        // Estimate fee
+        const estimatedVSize =
+            12 /* Tx header */ +
+            68 /* Per input */ * inputs.length +
+            30 /* Per output */ * 2;
+        const estimatedFee = estimatedVSize * feePerByte;
+
+        // Calculate sum of all inputs (for later use)
+        const inputValue = inputs.reduce((sum, input) => sum + input.witnessUtxo.value, 0);
+        const estimatedChange = inputValue - amount - estimatedFee;
+
+        if (estimatedChange < 0) throw new Error('Value of inputs is lower than transaction amount + estimated fee');
+
+        // Sort inputs by tx hash ASC, then index ASC
+        inputs.sort((input1, input2) => {
+            if (input1.hash !== input2.hash) return input1.hash < input2.hash ? -1 : 1;
+            return input1.index - input2.index;
+        });
+
+        // Construct PSBT without fee
+        const psbt = new BitcoinJS.Psbt({ network: BitcoinJS.networks.testnet });
+
+        // Add inputs
+        psbt.addInputs(inputs);
+
+        // Clone a PSBT to experiment on with size and fee
+        const testPsbt = psbt.clone();
+
+        // Construct outputs
+        const outputs = [{
+            address: to,
+            value: amount,
+        }, {
+            address: changeAddress,
+            value: estimatedChange,
+        }];
+        testPsbt.addOutputs(outputs.slice(0).sort((output1, output2) => {
+            if (output1.value !== output2.value) return output1.value - output2.value;
+            return output1.address < output2.address ? -1 : 1;
+        }));
+
+        // Sign + finalize to allow transaction extraction
+        testPsbt.signAllInputs(key).finalizeAllInputs();
+
+        // Extract transaction and check virtual size
+        const testTx = testPsbt.extractTransaction();
+        const actualVSize = testTx.virtualSize();
+        console.log("Sizes:", estimatedVSize, actualVSize);
+
+        // Calculate fee from virtual size and feePerByte argument
+        const actualFee = actualVSize * feePerByte;
+        console.log("Fee:", estimatedFee, actualFee);
+
+        if (actualFee !== estimatedFee) {
+            const actualChange = inputValue - amount - actualFee;
+            console.log("Change:", estimatedChange, actualChange);
+            // Check if input sum still fulfill amount + fee
+            if (actualChange < 0) throw new Error('Value of inputs is lower than transaction amount + fee');
+
+            // Update change output
+            outputs[1].value = actualChange;
+        }
+
+        // Order outputs by value ASC, then address ASC
+        outputs.sort((output1, output2) => {
+            if (output1.value !== output2.value) return output1.value - output2.value;
+            return output1.address < output2.address ? -1 : 1;
+        })
+
+        // Add outputs
+        psbt.addOutputs(outputs);
+
+        // Sign
+        psbt.signAllInputs(key);
+
+        // Finalize
+        psbt.finalizeAllInputs();
+
+        // Validate that fee rate is similar to feePerByte argument
+        console.log("Fee rates:", psbt.getFeeRate(), feePerByte, psbt.getFee());
+
+        // Extract tx
+        const tx = psbt.extractTransaction();
+
+        // Return tx
+        return tx;
+    }
+
     console.log("\nCreate transaction from external_0 to change_0");
     // Using this tx as input: https://blockstream.info/testnet/api/tx/1683f5639e614ccd11b6542a502eb31ed0a76a04809d56c2ecbca5335c67eb32
-    const key_ext_0 = btc_ext_root.derive(0);
-
-    const psbt = new BitcoinJS.Psbt({ network: BitcoinJS.networks.testnet })
-        .addInput({
-            hash: '1683f5639e614ccd11b6542a502eb31ed0a76a04809d56c2ecbca5335c67eb32',
-            index: 1, // Our output was the second in the input tx
-            witnessUtxo: {
-                script: NodeBuffer.Buffer.from('001484eb9bcbd90ce7d3360992259e4b9b818215a960', 'hex'),
-                value: 1000000,
-            },
-        })
-        .addOutput({
-            address: TEST_chg_addresses[0],
+    const key = btc_ext_root.derive(0);
+    const inputs = [{
+        hash: '1683f5639e614ccd11b6542a502eb31ed0a76a04809d56c2ecbca5335c67eb32',
+        index: 1, // Our output was the second in the input tx
+        witnessUtxo: {
+            script: NodeBuffer.Buffer.from('001484eb9bcbd90ce7d3360992259e4b9b818215a960', 'hex'),
             value: 1000000,
-        })
-        .signInput(0, key_ext_0);
+        },
+    }, {
+        hash: '18d7a602b06c9613412bc935c5fbe7a22ff4e670bc176f75fadbdf2fb9940b5d',
+        index: 0, // Our output was the second in the input tx
+        witnessUtxo: {
+            script: NodeBuffer.Buffer.from('001484eb9bcbd90ce7d3360992259e4b9b818215a960', 'hex'),
+            value: 4983992,
+        },
+    }, {
+        hash: '550bce13e303ace1c45f5f2112a3098c62c08b132a7042f6b7b085102051c082',
+        index: 1, // Our output was the second in the input tx
+        witnessUtxo: {
+            script: NodeBuffer.Buffer.from('001484eb9bcbd90ce7d3360992259e4b9b818215a960', 'hex'),
+            value: 1000000,
+        },
+    }, {
+        hash: '5fedaef5229799e18e351f76395bb7411e56da2291f99905e75dc72850ce2fdf',
+        index: 0, // Our output was the second in the input tx
+        witnessUtxo: {
+            script: NodeBuffer.Buffer.from('001484eb9bcbd90ce7d3360992259e4b9b818215a960', 'hex'),
+            value: 1000000,
+        },
+    }, {
+        hash: '891adf338c070c5512fc28a9d77d648a8f25ad0d63e742b3fb0605eb9124aee8',
+        index: 1, // Our output was the second in the input tx
+        witnessUtxo: {
+            script: NodeBuffer.Buffer.from('001484eb9bcbd90ce7d3360992259e4b9b818215a960', 'hex'),
+            value: 22000,
+        },
+    }, {
+        hash: '738b5c17758131b22d560ad6417defb830c3940bfc4074d0414b44798e880747',
+        index: 25, // Our output was the second in the input tx
+        witnessUtxo: {
+            script: NodeBuffer.Buffer.from('001484eb9bcbd90ce7d3360992259e4b9b818215a960', 'hex'),
+            value: 27738766,
+        },
+    }];
+    const to = TEST_ext_addresses[1];
+    const amount = Math.round(inputs.reduce((sum, input) => sum + input.witnessUtxo.value, 0) / 2);
+    const changeAddress = TEST_chg_addresses[0];
 
-    console.log(psbt);
-    console.log("Psbt Signature valid:", psbt.validateSignaturesOfInput(0));
+    const tx = makeTransaction(key, inputs, to, amount, changeAddress);
 
-    psbt.finalizeAllInputs();
-
-    const tx = psbt.extractTransaction();
     console.log("Tx:", tx);
+    console.log("Tx vSize:", tx.virtualSize());
     console.log("Tx HEX:", tx.toHex()); // Use https://live.blockcypher.com/btc/decodetx/ to decode the transaction
 }
 
