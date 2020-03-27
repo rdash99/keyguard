@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bitcoin Wallet</title>
+
+    <script src="../../node_modules/@nimiq/core-web/web-offline.js"></script>
+    <script src="nodebuffer.js"></script>
+    <script src="bitcoinjs.js"></script>
+
+    <script src="TestUtils.js"></script>
+    <script src="TestData.js"></script>
+    <script src="TxUtils.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+</head>
+<body>
+    <h1>Bitcoin Wallet (Testnet)</h1>
+
+    <div id="app">
+        <div>
+            <label>Mnemonic:</label><br>
+            <textarea cols="130" rows="2" v-model="mnemonic"></textarea>
+        </div>
+
+        <div>
+            <label>Seed:</label><br>
+            <textarea cols="130" rows="1" :value="seedHex" disabled></textarea>
+        </div>
+
+        <div>
+            <label>Account XPub:</label><br>
+            <textarea cols="130" rows="1" :value="xpub" disabled></textarea>
+        </div>
+
+        <div>
+            <h2>Transactions</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Hash</th>
+                        <th>Confirmed</th>
+                        <th>Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr v-for="tx in txsArray" :key="tx.txid">
+                        <td>{{ tx.txid }}</td>
+                        <td>{{ tx.status.confirmed }}</td>
+                        <td v-if="tx.status.confirmed">{{ tx.status.confirmed ? new Date(tx.status.block_time * 1000).toISOString() : '-' }}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div>
+            <h2>Outputs</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Address</th>
+                        <th>Value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr v-for="out in outputs" :key="`${out.txid}:${out.index}`" :style="`opacity: ${out.internal ? 0.5 : 1};`">
+                        <td>{{ out.scriptpubkey_address }}</td>
+                        <td :style="`color: ${out.incoming ? 'green' : out.internal ? 'inherit' : 'red'}; background: ${(out.internal || out.incoming) && !out.spent ? 'lightgreen' : 'none'}; text-align: right;`">
+                            {{ out.incoming ? '+' : out.internal ? '' : '-' }}{{ out.value }}
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script src="wallet.js"></script>
+</body>
+</html>
