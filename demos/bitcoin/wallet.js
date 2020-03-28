@@ -71,10 +71,16 @@ var app = new Vue({
                 return timestamp2 - timestamp1;
             });
         },
-        outputs() {
+        utxos() { // UTXO = Unspent TX Output
             if (!this.txsArray.length) return [];
 
-            const inputs = this.txsArray.reduce((list, tx) => list.concat(tx.vin), []);
+            // Create a flat array of inputs.
+            // Build an array of strings of the form '<tx hash>:<output index>' to be able to do a standard Array.includes() test below
+            /** @type {string[]} */
+            const inputs = this.txsArray.reduce((list, tx) => list.concat(tx.vin.map(input => `${input.txid}:${input.vout}`)), []);
+
+            // Create a flat array of outputs.
+            // Include tx hash and output index into the output, to be able to map it to a usable output later.
             const outputs = this.txsArray.reduce((list, tx) => {
                 const txid = tx.txid;
                 const vouts = tx.vout.map((vout, index) => ({ ...vout, txid, index }));
@@ -84,23 +90,41 @@ var app = new Vue({
             const externalAddresses = this.ext_addresses.map(addressInfo => addressInfo.address);
             const internalAddresses = this.int_addresses.map(addressInfo => addressInfo.address);
 
-            return outputs.map(output => {
-                // Check if it was spent
-                const spent = !!inputs.find(input => input.txid === output.txid && input.vout === output.index);
+            const utxos = [];
 
-                // Check if this was an internal transfer (change)
-                const internal = internalAddresses.includes(output.scriptpubkey_address);
+            for (const output of outputs) {
+                const address = output.scriptpubkey_address;
+                // Exclude outputs which are not ours
+                if (!externalAddresses.includes(address) && !internalAddresses.includes(address)) continue;
 
-                // Check if this is an incoming transfer
-                const incoming = externalAddresses.includes(output.scriptpubkey_address);
+                // Exlude outputs which are already spent
+                if (inputs.includes(`${output.txid}:${output.index}`)) continue;
 
-                return {
-                    ...output,
-                    spent,
-                    internal,
-                    incoming,
-                };
-            });
+                // Format required by BitcoinJS (for tx inputs)
+                // {
+                //     hash: '<tx hash as HEX string>',
+                //     index: <output index>
+                //     witnessUtxo: {
+                //         script: <Buffer of the output script>,
+                //         value: <output value>,
+                //     },
+                // }
+                utxos.push({
+                    hash: output.txid,
+                    index: output.index,
+                    witnessUtxo: {
+                        script: NodeBuffer.Buffer.from(output.scriptpubkey, 'hex'),
+                        value: output.value,
+                    },
+                    address, // Only added for display in demo
+                    isInternal: internalAddresses.includes(address), // Only added for display in demo
+                });
+            }
+
+            return utxos;
+        },
+        balance() {
+            return this.utxos.reduce((sum, utxo) => sum + utxo.witnessUtxo.value, 0);
         },
     },
     watch: {

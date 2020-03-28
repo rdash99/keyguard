@@ -35,6 +35,10 @@
         </div>
 
         <div>
+            <h2>Balance: {{ balance / 1e5 }} mBTC = {{ balance / 1e8 }} BTC</h2>
+        </div>
+
+        <div>
             <h2>Transactions</h2>
             <table>
                 <thead>
@@ -46,28 +50,30 @@
                 </thead>
                 <tbody>
                     <tr v-for="tx in txsArray" :key="tx.txid">
-                        <td>{{ tx.txid }}</td>
-                        <td>{{ tx.status.confirmed }}</td>
-                        <td v-if="tx.status.confirmed">{{ tx.status.confirmed ? new Date(tx.status.block_time * 1000).toISOString() : '-' }}</td>
+                        <td><code>{{ tx.txid }}</code></td>
+                        <td style="text-align: center;">{{ tx.status.confirmed }}</td>
+                        <td v-if="tx.status.confirmed">{{ tx.status.confirmed ? new Date(tx.status.block_time * 1000).toLocaleString() : '-' }}</td>
                     </tr>
                 </tbody>
             </table>
         </div>
 
         <div>
-            <h2>Outputs</h2>
+            <h2>Unspent Outputs</h2>
             <table>
                 <thead>
                     <tr>
+                        <th></th>
                         <th>Address</th>
                         <th>Value</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr v-for="out in outputs" :key="`${out.txid}:${out.index}`" :style="`opacity: ${out.internal ? 0.5 : 1};`">
-                        <td>{{ out.scriptpubkey_address }}</td>
-                        <td :style="`color: ${out.incoming ? 'green' : out.internal ? 'inherit' : 'red'}; background: ${(out.internal || out.incoming) && !out.spent ? 'lightgreen' : 'none'}; text-align: right;`">
-                            {{ out.incoming ? '+' : out.internal ? '' : '-' }}{{ out.value }}
+                    <tr v-for="out in utxos" :key="`${out.hash}:${out.index}`">
+                        <td>{{ out.isInternal ? '(int)' : '(ext)' }}</td>
+                        <td><code>{{ out.address }}</code></td>
+                        <td style="text-align: right;">
+                            {{ out.witnessUtxo.value / 1e5 }} mBTC
                         </td>
                     </tr>
                 </tbody>
