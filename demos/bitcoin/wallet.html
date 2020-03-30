@@ -39,6 +39,19 @@
         </div>
 
         <div>
+            <h2>Receive: <code>{{ nextReceivingAddress }}</code></h2>
+        </div>
+
+        <div>
+            <h2>Send Transaction</h2>
+            To: <input type="text" v-model="txTo"><br>
+            Amount: <input type="number" min="0" step="0.00001" v-model="txAmount"> mBTC<br>
+            <button>Sign</button><br>
+            <textarea placeholder="The signed transaction will appear here" v-model="signedTx"></textarea><br>
+            <!-- <button>Broadcast</button><br> -->
+        </div>
+
+        <div>
             <h2>Transactions</h2>
             <table>
                 <thead>

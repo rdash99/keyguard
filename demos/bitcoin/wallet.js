@@ -32,6 +32,10 @@ var app = new Vue({
         ext_addresses: [],
         int_addresses: [],
         txs: {},
+
+        txTo: '',
+        txAmount: 0,
+        signedTx: '',
     },
     computed: {
         seed() { // Nimiq.SerialBuffer
@@ -116,7 +120,7 @@ var app = new Vue({
                         script: NodeBuffer.Buffer.from(output.scriptpubkey, 'hex'),
                         value: output.value,
                     },
-                    address, // Only added for display in demo
+                    address, // Used for grouping outputs when selecting utxos for txs
                     isInternal: internalAddresses.includes(address), // Only added for display in demo
                 });
             }
@@ -125,6 +129,10 @@ var app = new Vue({
         },
         balance() {
             return this.utxos.reduce((sum, utxo) => sum + utxo.witnessUtxo.value, 0);
+        },
+        nextReceivingAddress() {
+            // Return first unused external address
+            return this.ext_addresses.find(addressInfo => !addressInfo.active);
         },
     },
     watch: {
@@ -240,6 +248,12 @@ var app = new Vue({
                 ...this.txs,
                 ...txsObj,
             };
+        },
+        signTransaction() {
+            const to = this.txTo;
+            const amount = this.txAmount;
+
+            // Find utxo(s) that fulfills the amount + fee
         },
     },
 });

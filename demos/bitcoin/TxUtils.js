@@ -114,6 +114,7 @@ class TxUtils {
                             count: 1,
                         };
                     }
+                    return obj;
                 }, {})
         ).sort((a, b) => a.balance - b.balance);
 
@@ -153,7 +154,7 @@ class TxUtils {
     }
 }
 
-TxUtils.TX_BASE_VSIZE = 12;
+TxUtils.TX_BASE_VSIZE = 13;
 TxUtils.INPUT_VSIZE = 68;
 TxUtils.OUPUT_VSIZE = 30;
 
