@@ -1,8 +1,6 @@
-// Transaction Virtual Sizes
-// Single input, single output: 110 bytes
-// Single input, two outputs: 141 bytes
-// Two inputs, single output: 178 bytes
-// Two inputs, two outputs: 208 bytes
+/**
+ * @typedef {{hash: string, index: number, witnessUtxo: {script: Buffer, value: number}, address: string, isInternal: boolean} UTXO
+ */
 
 class TxUtils {
     /**
@@ -10,19 +8,15 @@ class TxUtils {
      * from any inputs for which keyPairs are provided.
      *
      * @param {{privateKey: Uint8Array, publicKey: Uint8Array}[]} keyPairs
-     * @param {{hash: string, index: number, witnessUtxo: {script: Buffer, value: number}}[]} inputs
+     * @param {UTXO[]} inputs
      * @param {string} to
      * @param {number} amount
-     * @param {string} changeAddress
+     * @param {string} [changeAddress]
      * @param {number} [feePerByte]
+     * @returns {BitcoinJS.Transaction}
      */
     static makeTransaction(keyPairs, inputs, to, amount, changeAddress, feePerByte = 1) {
-        // Estimate fee
-        const estimatedVSize =
-            12 /* Tx header */ +
-            68 /* Per input */ * inputs.length +
-            30 /* Per output */ * 2;
-        const estimatedFee = estimatedVSize * feePerByte;
+        const estimatedFee = this.estimateFees(inputs.length, changeAddress ? 2 : 1, feePerByte);
 
         // Calculate sum of all inputs (for later use)
         const inputValue = inputs.reduce((sum, input) => sum + input.witnessUtxo.value, 0);
@@ -36,56 +30,25 @@ class TxUtils {
             return input1.index - input2.index;
         });
 
-        // Construct PSBT without fee
+        // Construct PSBT
         const psbt = new BitcoinJS.Psbt({ network: BitcoinJS.networks.testnet });
 
         // Add inputs
         psbt.addInputs(inputs);
 
-        // Clone a PSBT to experiment on with size and fee
-        const testPsbt = psbt.clone();
-
         // Construct outputs
         const outputs = [{
             address: to,
             value: amount,
-        }, {
+        }, ...(changeAddress ? [{
             address: changeAddress,
             value: estimatedChange,
-        }];
-        testPsbt.addOutputs(outputs.slice(0).sort((output1, output2) => {
-            if (output1.value !== output2.value) return output1.value - output2.value;
-            return output1.address < output2.address ? -1 : 1;
-        }));
+        }] : [])];
 
-        // Sign + finalize to allow transaction extraction
-        for (const keyPair of keyPairs) testPsbt.signAllInputs(keyPair);
-        testPsbt.finalizeAllInputs();
-
-        // Extract transaction and check virtual size
-        const testTx = testPsbt.extractTransaction();
-        const actualVSize = testTx.virtualSize();
-        console.debug("Sizes:", estimatedVSize, actualVSize);
-
-        // Calculate fee from virtual size and feePerByte argument
-        const actualFee = actualVSize * feePerByte;
-        console.debug("Fee:", estimatedFee, actualFee);
-
-        if (actualFee !== estimatedFee) {
-            const actualChange = inputValue - amount - actualFee;
-            console.debug("Change:", estimatedChange, actualChange);
-            // Check if input sum still fulfill amount + fee
-            if (actualChange < 0) throw new Error('Value of inputs is lower than transaction amount + fee');
-
-            // Update change output
-            outputs[1].value = actualChange;
-        }
-
-        // Order outputs by value ASC, then address ASC
+        // Sort outputs by value ASC, then address ASC
         outputs.sort((output1, output2) => {
-            if (output1.value !== output2.value) return output1.value - output2.value;
-            return output1.address < output2.address ? -1 : 1;
-        })
+            return (output1.value - output2.value) || (output1.address < output2.address ? -1 : 1);
+        });
 
         // Add outputs
         psbt.addOutputs(outputs);
@@ -105,4 +68,94 @@ class TxUtils {
         // Return tx
         return tx;
     }
+
+    /**
+     * @param {number} numInputs
+     * @param {number} numOutputs
+     * @param {number} [feePerByte]
+     * @returns {number}
+     */
+    static estimateFees(numInputs, numOutputs, feePerByte = 1) {
+        // Transaction Virtual Sizes
+        // Single input, single output: 110 bytes
+        // Single input, two outputs: 141 bytes
+        // Two inputs, single output: 178 bytes
+        // Two inputs, two outputs: 208 bytes
+
+        // Estimate fee
+        const estimatedVSize =
+            this.TX_BASE_VSIZE /* Tx header */ +
+            this.INPUT_VSIZE /* Per input */ * numInputs +
+            this.OUPUT_VSIZE /* Per output */ * numOutputs;
+
+        return estimatedVSize * feePerByte;
+    }
+
+    /**
+     * @param {UTXO[]} utxos
+     * @param {number} amount
+     * @param {number} [feePerByte]
+     * @returns {{utxos: UTXO[], requiresChange: boolean}}
+     */
+    static selectOutputs(utxos, amount, feePerByte) {
+        // Group UTXOs by address and sort by value
+        /** @type {{address: string, balance: number, count: number}[]} */
+        const balances = Object.values(
+            utxos
+                .map(utxo => ({address: utxo.address, balance: utxo.witnessUtxo.value}))
+                .reduce((obj, utxo) => {
+                    const existingBalance = obj[utxo.address];
+                    if (existingBalance) {
+                        existingBalance.balance += utxo.balance;
+                        existingBalance.count += 1;
+                    } else {
+                        obj[utxo.address] = {
+                            ...utxo,
+                            count: 1,
+                        };
+                    }
+                }, {})
+        ).sort((a, b) => a.balance - b.balance);
+
+        // Sum up outputs until we find a sum that is bigger than the amount + fees
+        let sum = 0;
+        let outputCount = 0;
+        let requiresChange = false;
+        const addresses = [];
+
+        for (const balanceObj of balances) {
+            addresses.push(balanceObj.address);
+            sum += balanceObj.balance;
+            outputCount += balanceObj.count;
+
+            if (sum < amount) continue;
+
+            const feeWithChange = this.estimateFees(outputCount, 2, feePerByte);
+            const feeWithoutChange = this.estimateFees(outputCount, 1, feePerByte);
+
+            if (sum >= amount + feeWithChange + this.DUST_AMOUNT) {
+                console.debug('Found a combi that has a non-dust change output');
+                requiresChange = true;
+                break;
+            }
+
+            if (sum >= amount + feeWithoutChange) {
+                console.debug('Found a combi that requires no change ouput');
+                requiresChange = false;
+                break;
+            }
+        }
+
+        return {
+            utxos: utxos.filter(utxo => addresses.includes(utxo.address)),
+            requiresChange,
+        }
+    }
 }
+
+TxUtils.TX_BASE_VSIZE = 12;
+TxUtils.INPUT_VSIZE = 68;
+TxUtils.OUPUT_VSIZE = 30;
+
+// The amount which does not warrant a change output, since it would cost more in fees to include than it's worth
+TxUtils.DUST_AMOUNT = TxUtils.INPUT_VSIZE * 2;
