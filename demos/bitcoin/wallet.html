@@ -44,11 +44,12 @@
 
         <div>
             <h2>Send Transaction</h2>
-            To: <input type="text" v-model="txTo"><br>
-            Amount: <input type="number" min="0" step="0.00001" v-model="txAmount"> mBTC<br>
-            <button>Sign</button><br>
-            <textarea placeholder="The signed transaction will appear here" v-model="signedTx"></textarea><br>
-            <!-- <button>Broadcast</button><br> -->
+            To: <input type="text" size="50" v-model="txTo"><br>
+            Amount: <input type="number" min="0" step="0.00001" v-model="txAmount"> mBTC
+            Fee: <input type="number" min="0" step="1" v-model="txFeePerByte"> sat/byte<br>
+            <button @click="signTransaction">Sign</button><br>
+            <textarea cols="130" rows="4" placeholder="The signed transaction will appear here" v-model="signedTx"></textarea><br>
+            <button @click="broadcastTransaction" :disabled="!signedTx">Broadcast</button><br>
         </div>
 
         <div>

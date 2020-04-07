@@ -10,6 +10,13 @@ async function fetchTxs(address) {
     return fetchApi('address/' + address + '/txs');
 }
 
+async function pushTx(txHex) {
+    return fetch('https://blockstream.info/testnet/tx/', {
+        method: 'POST',
+        body: txHex,
+    }).then(res => res.json());
+}
+
 function nodeToBech32Address(node) {
     return BitcoinJS.payments.p2wpkh({ pubkey: node.publicKey, network: TEST.network }).address;
 }
@@ -35,6 +42,7 @@ var app = new Vue({
 
         txTo: '',
         txAmount: 0,
+        txFeePerByte: 1,
         signedTx: '',
     },
     computed: {
@@ -133,6 +141,10 @@ var app = new Vue({
         nextReceivingAddress() {
             // Return first unused external address
             return this.ext_addresses.find(addressInfo => !addressInfo.active);
+        },
+        nextChangeAddress() {
+            // Return first unused external address
+            return this.int_addresses.find(addressInfo => !addressInfo.active);
         },
     },
     watch: {
@@ -251,9 +263,29 @@ var app = new Vue({
         },
         signTransaction() {
             const to = this.txTo;
-            const amount = this.txAmount;
+            const amount = this.txAmount * 1e5;
+            const feePerByte = this.txFeePerByte;
 
             // Find utxo(s) that fulfills the amount + fee
+            const { utxos, requiresChange } = TxUtils.selectOutputs(this.utxos, amount, feePerByte);
+            if (!utxos.length) throw new Error('Could not find UTXOs to match the amount!');
+
+            // Derive keys for selected UTXOs
+            const paths = utxos.reduce((set, utxo) => set.add(`${utxo.isInternal ? 1 : 0}/${utxo.index}`), new Set());
+            const keys = [...paths.values()].map(path => this.accountExtPrivKey.derivePath(path));
+
+            const tx = TxUtils.makeTransaction(keys, utxos, to, amount, requiresChange ? this.nextChangeAddress.address : null, feePerByte);
+            this.signedTx = tx.toHex();
+        },
+        async broadcastTransaction() {
+            const txid = await pushTx(this.signedTx);
+
+            alert('Broadcast: ' + txid);
+
+            this.txTo = '';
+            this.txAmount = 0;
+            this.txFeePerByte = 1;
+            this.signedTx = '';
         },
     },
 });
