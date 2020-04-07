@@ -12,6 +12,7 @@
     <script src="TestUtils.js"></script>
     <script src="TestData.js"></script>
     <script src="TxUtils.js"></script>
+    <script src="BlockcypherApi.js"></script>
 
     <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
 </head>
@@ -58,15 +59,15 @@
                 <thead>
                     <tr>
                         <th>Hash</th>
-                        <th>Confirmed</th>
+                        <th>Confs</th>
                         <th>Date</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr v-for="tx in txsArray" :key="tx.txid">
-                        <td><code>{{ tx.txid }}</code></td>
-                        <td style="text-align: center;">{{ tx.status.confirmed }}</td>
-                        <td v-if="tx.status.confirmed">{{ tx.status.confirmed ? new Date(tx.status.block_time * 1000).toLocaleString() : '-' }}</td>
+                        <td><code>{{ tx.hash }}</code></td>
+                        <td style="text-align: center;">{{ tx.confirmations }}</td>
+                        <td style="text-align: center;">{{ tx.confirmed || 'pending' }}</td>
                     </tr>
                 </tbody>
             </table>

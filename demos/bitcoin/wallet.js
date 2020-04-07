@@ -1,29 +1,10 @@
-async function fetchApi(path) {
-    return fetch('https://blockstream.info/testnet/api/' + path).then(res => res.json());
-}
-
-async function fetchTxoStats(address) {
-    return fetchApi('address/' + address);
-}
-
-async function fetchTxs(address) {
-    return fetchApi('address/' + address + '/txs');
-}
-
-async function pushTx(txHex) {
-    return fetch('https://blockstream.info/testnet/tx/', {
-        method: 'POST',
-        body: txHex,
-    }).then(res => res.json());
-}
-
 function nodeToBech32Address(node) {
     return BitcoinJS.payments.p2wpkh({ pubkey: node.publicKey, network: TEST.network }).address;
 }
 
 async function updateAddressInfoActivity(addressInfo) {
-    const stats = await fetchTxoStats(addressInfo.address);
-    addressInfo.active = !!stats.chain_stats.tx_count || !!stats.mempool_stats.tx_count;
+    const stats = await BlockCypher.fetchAddressStats(addressInfo.address);
+    addressInfo.active = !!stats.final_n_tx;
     return addressInfo;
 }
 
@@ -38,6 +19,7 @@ var app = new Vue({
         int_index: 0,
         ext_addresses: [],
         int_addresses: [],
+        /** @type {{[hash: string]: Transaction}} */
         txs: {},
 
         txTo: '',
@@ -78,8 +60,8 @@ var app = new Vue({
         },
         txsArray() { // Array
             return Object.values(this.txs).sort((tx1, tx2) => {
-                const timestamp1 = tx1.status.confirmed ? tx1.status.block_time : Number.MAX_SAFE_INTEGER;
-                const timestamp2 = tx2.status.confirmed ? tx2.status.block_time : Number.MAX_SAFE_INTEGER;
+                const timestamp1 = tx1.confirmations ? tx1.block_height : Number.MAX_SAFE_INTEGER;
+                const timestamp2 = tx2.confirmations ? tx2.block_height : Number.MAX_SAFE_INTEGER;
                 return timestamp2 - timestamp1;
             });
         },
@@ -88,14 +70,14 @@ var app = new Vue({
 
             // Create a flat array of inputs.
             // Build an array of strings of the form '<tx hash>:<output index>' to be able to do a standard Array.includes() test below
-            /** @type {string[]} */
-            const inputs = this.txsArray.reduce((list, tx) => list.concat(tx.vin.map(input => `${input.txid}:${input.vout}`)), []);
+            // /** @type {string[]} */
+            const inputs = this.txsArray.reduce((list, tx) => list.concat(tx.inputs.map(input => `${input.prev_hash}:${input.output_index}`)), []);
 
             // Create a flat array of outputs.
             // Include tx hash and output index into the output, to be able to map it to a usable output later.
             const outputs = this.txsArray.reduce((list, tx) => {
-                const txid = tx.txid;
-                const vouts = tx.vout.map((vout, index) => ({ ...vout, txid, index }));
+                const hash = tx.hash;
+                const vouts = tx.outputs.map((vout, index) => ({ ...vout, hash, index }));
                 return list.concat(vouts);
             }, []);
 
@@ -105,12 +87,13 @@ var app = new Vue({
             const utxos = [];
 
             for (const output of outputs) {
-                const address = output.scriptpubkey_address;
+                const address = output.addresses[0];
                 // Exclude outputs which are not ours
                 if (!externalAddresses.includes(address) && !internalAddresses.includes(address)) continue;
 
                 // Exlude outputs which are already spent
-                if (inputs.includes(`${output.txid}:${output.index}`)) continue;
+                if (inputs.includes(`${output.hash}:${output.index}`)) continue;
+                // if (output.spent_by) continue;
 
                 // Format required by BitcoinJS (for tx inputs)
                 // {
@@ -122,10 +105,10 @@ var app = new Vue({
                 //     },
                 // }
                 utxos.push({
-                    hash: output.txid,
+                    hash: output.hash,
                     index: output.index,
                     witnessUtxo: {
-                        script: NodeBuffer.Buffer.from(output.scriptpubkey, 'hex'),
+                        script: NodeBuffer.Buffer.from(output.script, 'hex'),
                         value: output.value,
                     },
                     address, // Used for grouping outputs when selecting utxos for txs
@@ -251,10 +234,12 @@ var app = new Vue({
     methods: {
         async fetchTxHistory(address) {
             // Fetch tx history
-            const txs = await fetchTxs(address);
+            const txs = await BlockCypher.fetchTxs(address);
+            console.log(txs);
+            /** @type {{[hash: string]: Transaction}} */
             const txsObj = {};
             for (const tx of txs) {
-                txsObj[tx.txid] = tx;
+                txsObj[tx.hash] = tx;
             }
             this.txs = {
                 ...this.txs,
@@ -278,9 +263,10 @@ var app = new Vue({
             this.signedTx = tx.toHex();
         },
         async broadcastTransaction() {
-            const txid = await pushTx(this.signedTx);
+            const response = await BlockCypher.pushTx(this.signedTx);
+            console.log(response);
 
-            alert('Broadcast: ' + txid);
+            alert('Broadcast: ' + response.tx && response.tx.hash);
 
             this.txTo = '';
             this.txAmount = 0;
