@@ -135,13 +135,13 @@ class TxUtils {
             const feeWithoutChange = this.estimateFees(outputCount, 1, feePerByte);
 
             if (sum >= amount + feeWithChange + this.DUST_AMOUNT) {
-                console.debug('Found a combi that has a non-dust change output');
+                console.debug('Found a combi that DOES require a change output');
                 requiresChange = true;
                 break;
             }
 
             if (sum >= amount + feeWithoutChange) {
-                console.debug('Found a combi that requires no change ouput');
+                console.debug('Found a combi that DOES NOT require a change ouput');
                 requiresChange = false;
                 break;
             }

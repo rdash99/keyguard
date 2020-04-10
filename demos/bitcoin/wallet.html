@@ -12,7 +12,7 @@
     <script src="TestUtils.js"></script>
     <script src="TestData.js"></script>
     <script src="TxUtils.js"></script>
-    <script src="BlockcypherApi.js"></script>
+    <script src="SmartBitApi.js"></script>
 
     <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
 </head>
@@ -65,9 +65,9 @@
                 </thead>
                 <tbody>
                     <tr v-for="tx in txsArray" :key="tx.txid">
-                        <td><code>{{ tx.hash }}</code></td>
+                        <td><code>{{ tx.txid }}</code></td>
                         <td style="text-align: center;">{{ tx.confirmations }}</td>
-                        <td style="text-align: center;">{{ tx.confirmed || 'pending' }}</td>
+                        <td style="text-align: center;">{{ tx.block_time ? new Date(tx.block_time * 1000).toLocaleString() : 'pending' }}</td>
                     </tr>
                 </tbody>
             </table>

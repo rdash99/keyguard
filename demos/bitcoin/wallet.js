@@ -1,10 +1,49 @@
+/**
+ * @typedef {
+ *     address: string,
+ *     balance: number,
+ *     txCount: number,
+ *     utxoCount: number,
+ * } AddressStats
+ *
+ * @typedef {
+ *     address: string,
+ *     value: number,
+ *     txid: string,
+ *     output_index: number,
+ *     script: string,
+ * } Input
+ *
+ * @typedef {
+ *     address: string,
+ *     value: number,
+ *     index: number,
+ *     script: string,
+ *     spent_txid?: string,
+ * } Output
+ *
+ * @typedef {
+ *     txid: string,
+ *     block_height?: number,
+ *     confirmations: number,
+ *     version: number,
+ *     block_time?: number,
+ *     seen_time: number,
+ *     vsize: number,
+ *     fee: number,
+ *     inputs: Input[],
+ *     outputs: Output[],
+ * } Transaction
+ */
+
 function nodeToBech32Address(node) {
     return BitcoinJS.payments.p2wpkh({ pubkey: node.publicKey, network: TEST.network }).address;
 }
 
 async function updateAddressInfoActivity(addressInfo) {
-    const stats = await BlockCypher.fetchAddressStats(addressInfo.address);
-    addressInfo.active = !!stats.final_n_tx;
+    /** @type {AddressStats} */
+    const stats = await SmartBit.fetchAddressStats(addressInfo.address);
+    addressInfo.active = !!stats.txCount;
     return addressInfo;
 }
 
@@ -71,14 +110,14 @@ var app = new Vue({
             // Create a flat array of inputs.
             // Build an array of strings of the form '<tx hash>:<output index>' to be able to do a standard Array.includes() test below
             // /** @type {string[]} */
-            const inputs = this.txsArray.reduce((list, tx) => list.concat(tx.inputs.map(input => `${input.prev_hash}:${input.output_index}`)), []);
+            const inputs = this.txsArray.reduce((list, tx) => list.concat(tx.inputs.map(input => `${input.txid}:${input.output_index}`)), []);
 
             // Create a flat array of outputs.
             // Include tx hash and output index into the output, to be able to map it to a usable output later.
             const outputs = this.txsArray.reduce((list, tx) => {
-                const hash = tx.hash;
-                const vouts = tx.outputs.map((vout, index) => ({ ...vout, hash, index }));
-                return list.concat(vouts);
+                const txid = tx.txid;
+                const outputs = tx.outputs.map((output) => ({ ...output, txid }));
+                return list.concat(outputs);
             }, []);
 
             const externalAddresses = this.ext_addresses.map(addressInfo => addressInfo.address);
@@ -87,13 +126,13 @@ var app = new Vue({
             const utxos = [];
 
             for (const output of outputs) {
-                const address = output.addresses[0];
+                const address = output.address;
                 // Exclude outputs which are not ours
                 if (!externalAddresses.includes(address) && !internalAddresses.includes(address)) continue;
 
                 // Exlude outputs which are already spent
-                if (inputs.includes(`${output.hash}:${output.index}`)) continue;
-                // if (output.spent_by) continue;
+                if (inputs.includes(`${output.txid}:${output.index}`)) continue;
+                // if (output.spent_txid) continue;
 
                 // Format required by BitcoinJS (for tx inputs)
                 // {
@@ -105,7 +144,7 @@ var app = new Vue({
                 //     },
                 // }
                 utxos.push({
-                    hash: output.hash,
+                    hash: output.txid,
                     index: output.index,
                     witnessUtxo: {
                         script: NodeBuffer.Buffer.from(output.script, 'hex'),
@@ -234,12 +273,11 @@ var app = new Vue({
     methods: {
         async fetchTxHistory(address) {
             // Fetch tx history
-            const txs = await BlockCypher.fetchTxs(address);
-            console.log(txs);
+            const txs = await SmartBit.fetchTxs(address);
             /** @type {{[hash: string]: Transaction}} */
             const txsObj = {};
             for (const tx of txs) {
-                txsObj[tx.hash] = tx;
+                txsObj[tx.txid] = Object.freeze(tx);
             }
             this.txs = {
                 ...this.txs,
@@ -251,22 +289,29 @@ var app = new Vue({
             const amount = this.txAmount * 1e5;
             const feePerByte = this.txFeePerByte;
 
-            // Find utxo(s) that fulfills the amount + fee
+            // Find UTXOs that fulfill the amount + fee
             const { utxos, requiresChange } = TxUtils.selectOutputs(this.utxos, amount, feePerByte);
             if (!utxos.length) throw new Error('Could not find UTXOs to match the amount!');
 
             // Derive keys for selected UTXOs
-            const paths = utxos.reduce((set, utxo) => set.add(`${utxo.isInternal ? 1 : 0}/${utxo.index}`), new Set());
+            const paths = utxos.reduce((set, utxo) => {
+                // Find derivation indices for UTXO address
+                const addressInfo = (utxo.isInternal ? this.int_addresses : this.ext_addresses).find(addrInfo => addrInfo.address === utxo.address);
+                if (!addressInfo) throw new Error('Cannot find address info for UTXO address');
+
+                set.add(`${utxo.isInternal ? 1 : 0}/${addressInfo.index}`);
+                return set;
+            }, new Set());
             const keys = [...paths.values()].map(path => this.accountExtPrivKey.derivePath(path));
 
             const tx = TxUtils.makeTransaction(keys, utxos, to, amount, requiresChange ? this.nextChangeAddress.address : null, feePerByte);
             this.signedTx = tx.toHex();
         },
         async broadcastTransaction() {
-            const response = await BlockCypher.pushTx(this.signedTx);
+            const response = await SmartBit.pushTx(this.signedTx);
             console.log(response);
 
-            alert('Broadcast: ' + response.tx && response.tx.hash);
+            alert('Broadcast: ' + response.success ? response.txid : response.error.message);
 
             this.txTo = '';
             this.txAmount = 0;

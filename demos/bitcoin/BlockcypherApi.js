@@ -13,7 +13,7 @@ const API_URL = 'https://api.blockcypher.com/v1/btc/test3';
  *     n_tx: number,
  *     unconfirmed_n_tx: number,
  *     final_n_tx: number,
- * }} AddressStats
+ * }} BlockCypherAddressStats
  *
  * @typedef {{
  *     prev_hash: string,
@@ -23,7 +23,7 @@ const API_URL = 'https://api.blockcypher.com/v1/btc/test3';
  *     sequence: number,
  *     addresses: string[],
  *     script_type: string,
- * }} Input
+ * }} BlockCypherInput
  *
  * @typedef {{
  *     value: number,
@@ -31,7 +31,7 @@ const API_URL = 'https://api.blockcypher.com/v1/btc/test3';
  *     addresses: string[],
  *     script_type: string,
  *     spent_by?: string,
- * }} Output
+ * }} BlockCypherOutput
  *
  * @typedef {{
  *     block_hash?: string,
@@ -52,15 +52,15 @@ const API_URL = 'https://api.blockcypher.com/v1/btc/test3';
  *     vout_sz: number,
  *     confirmations: number,
  *     confidence: number,
- *     inputs: Input[],
- *     outputs: Output[],
+ *     inputs: BlockCypherInput[],
+ *     outputs: BlockCypherOutput[],
  *     opt_in_rbf?: boolean,
- * }} Transaction
+ * }} BlockCypherTransaction
  *
- * @typedef {AddressStats & {
- *     txs: Transaction[],
+ * @typedef {BlockCypherAddressStats & {
+ *     txs: BlockCypherTransaction[],
  *     hasMore?: boolean,
- * }} AddressInfoFull
+ * }} BlockCypherAddressInfoFull
  */
 
 class BlockCypher {
@@ -76,26 +76,32 @@ class BlockCypher {
 
     /**
      * @param {string} address
-     * @returns {Promise<AddressStats>}
+     * @returns {Promise<BlockCypherAddressStats>}
      */
     static async fetchAddressStats(address) {
-        return this.fetchApi('/addrs/' + address + '/balance');
+        const stats = await this.fetchApi('/addrs/' + address + '/balance');
+        return {
+            address,
+            balance: stats.balance,
+            txCount: stats.n_tx,
+            // utxoCount: stats.input_count - stats.output_count,
+        };
     }
 
     /**
      * @param {string} address
      * @param {number} [before]
-     * @returns {Promise<Transaction[]>}
+     * @returns {Promise<BlockCypherTransaction[]>}
      */
     static async fetchTxs(address, before) {
-        /** @type {AddressInfoFull} */
+        /** @type {BlockCypherAddressInfoFull} */
         const addressInfo = await this.fetchApi('/addrs/' + address + '/full' + (before ? '?before=' + before : ''));
         return addressInfo.txs;
     }
 
     /**
      * @param {string} txHex
-     * @returns {Promise<Transaction>}
+     * @returns {Promise<BlockCypherTransaction>}
      */
     static async pushTx(txHex) {
         return this.fetchApi('/txs/push', {
