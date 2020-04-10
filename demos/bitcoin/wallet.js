@@ -318,5 +318,13 @@ var app = new Vue({
             this.txFeePerByte = 1;
             this.signedTx = '';
         },
+        async subscribeCurrentReceiveAddress() {
+            try {
+                await SmartBit.subscribeAddresses(this.nextReceivingAddress.address);
+                alert('Ok, subscribed');
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        },
     },
 });

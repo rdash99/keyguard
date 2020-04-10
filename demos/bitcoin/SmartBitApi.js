@@ -41,11 +41,11 @@ const API_URL = 'https://testnet-api.smartbit.com.au/v1/blockchain';
  *
  * @typedef {{
  *     txid: string,
- *     block: number,
+ *     block?: number,
  *     confirmations: number,
  *     version: number,
  *     locktime: number,
- *     time: number,
+ *     time?: number,
  *     first_seen: number,
  *     double_spend: boolean,
  *     size: number,
@@ -120,6 +120,84 @@ class SmartBit {
         });
     }
 
+    static async getWebsocket() {
+        SmartBit._ws = SmartBit._ws || new Promise((resolve, reject) => {
+            const ws = new WebSocket('wss://testnet-ws.smartbit.com.au/v1/blockchain');
+
+            ws.addEventListener('open', (event) => {
+                console.log('Websocket OPEN');
+                resolve(ws);
+            });
+
+            ws.addEventListener('error', (error) => {
+                console.log('Websocket ERROR', error);
+                reject(error);
+            });
+
+            ws.addEventListener('close', (event) => {
+                console.log('Websocket CLOSE');
+                SmartBit._ws = null;
+                SmartBit.getWebsocket();
+            });
+
+            ws.addEventListener('message', (msgEvent) => {
+                SmartBit.onMessage(JSON.parse(msgEvent.data));
+            });
+        });
+
+        return SmartBit._ws;
+    }
+
+    static onMessage(msg) {
+        console.log('Websocket MESSAGE', msg);
+        switch(msg.type) {
+            case 'heartbeat': break; // Ignore
+            case 'subscribe-response': SmartBit.onSubscribeResponse(msg.payload); break;
+            case 'new-transaction': SmartBit.onTransaction && SmartBit.onTransaction(msg.payload); break;
+            case 'transaction': SmartBit.onTransactionMined(msg.payload); break;
+        }
+    }
+
+    /**
+     * @param {string} address
+     * @returns {Promise<boolean>}
+     */
+    static async subscribeAddresses(address) {
+        const ws = await SmartBit.getWebsocket();
+
+        return new Promise((resolve, reject) => {
+            SmartBit._subscriptionListener = (payload) => {
+                if (payload.success) resolve(true);
+                reject(new Error(payload.message));
+            };
+            ws.send(JSON.stringify({
+                type: 'address',
+                address,
+            }));
+        });
+    }
+
+    /**
+     * @param {{success: boolean, message: string}}
+     */
+    static onSubscribeResponse(payload) {
+        if (!SmartBit._subscriptionListener) {
+            throw new Error('Received subscription response, but no listener is registered');
+        }
+        SmartBit._subscriptionListener(payload);
+        SmartBit._subscriptionListener = null;
+    }
+
+    /**
+     * @param {SmartBitTransaction} payload
+     */
+    static onTransaction(payload) {}
+
+    /**
+     * @param {{txid: string, block: {height: number, hash: string}}} payload
+     */
+    static onTransactionMined(payload) {}
+
     /**
      * @param {SmartBitTransaction} tx
      * @returns {Transaction}
@@ -159,3 +237,6 @@ class SmartBit {
         };
     }
 }
+
+SmartBit._ws = null;
+SmartBit._subscriptionListener = null;
