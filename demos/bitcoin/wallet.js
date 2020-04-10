@@ -36,8 +36,20 @@
  * } Transaction
  */
 
-function nodeToBech32Address(node) {
-    return BitcoinJS.payments.p2wpkh({ pubkey: node.publicKey, network: TEST.network }).address;
+function nodeToNestedWitnessAddress(node) {
+    return BitcoinJS.payments.p2sh({
+        redeem: BitcoinJS.payments.p2wpkh({
+            pubkey: node.publicKey,
+            network: TEST.network,
+        }),
+    }).address;
+}
+
+function nodeToNestedWitnessRedeemScript(node) {
+    return BitcoinJS.payments.p2wpkh({
+        pubkey: node.publicKey,
+        network: TEST.network,
+    }).output;
 }
 
 async function updateAddressInfoActivity(addressInfo) {
@@ -142,6 +154,7 @@ var app = new Vue({
                 //         script: <Buffer of the output script>,
                 //         value: <output value>,
                 //     },
+                //     redeemScript: <Buffer of redeem script>,
                 // }
                 utxos.push({
                     hash: output.txid,
@@ -150,6 +163,7 @@ var app = new Vue({
                         script: NodeBuffer.Buffer.from(output.script, 'hex'),
                         value: output.value,
                     },
+                    redeemScript: nodeToNestedWitnessRedeemScript(this.accountExtPubKey.derivePath('0/0')),
                     address, // Used for grouping outputs when selecting utxos for txs
                     isInternal: internalAddresses.includes(address), // Only added for display in demo
                 });
@@ -204,7 +218,7 @@ var app = new Vue({
                 const node = xPub
                     .derive(0) // 0 for external addresses
                     .derive(index);
-                const address = nodeToBech32Address(node);
+                const address = nodeToNestedWitnessAddress(node);
 
                 const addressInfo = {
                     address,
@@ -248,7 +262,7 @@ var app = new Vue({
                 const node = xPub
                     .derive(1) // 1 for internal addresses
                     .derive(index);
-                const address = nodeToBech32Address(node);
+                const address = nodeToNestedWitnessAddress(node);
 
                 const addressInfo = {
                     address,

@@ -65,6 +65,8 @@ class TxUtils {
         // Extract tx
         const tx = psbt.extractTransaction();
 
+        console.log(tx.virtualSize());
+
         // Return tx
         return tx;
     }
