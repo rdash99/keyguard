@@ -153,8 +153,8 @@ class SmartBit {
         switch(msg.type) {
             case 'heartbeat': break; // Ignore
             case 'subscribe-response': SmartBit.onSubscribeResponse(msg.payload); break;
-            case 'new-transaction': SmartBit.onTransaction && SmartBit.onTransaction(msg.payload); break;
             case 'transaction': SmartBit.onTransactionMined(msg.payload); break;
+            case 'address': SmartBit.onTransaction(msg.payload.transaction); break;
         }
     }
 
@@ -178,6 +178,25 @@ class SmartBit {
     }
 
     /**
+     * @param {string} txid
+     * @returns {Promise<boolean>}
+     */
+    static async subscribeTransaction(txid) {
+        const ws = await SmartBit.getWebsocket();
+
+        return new Promise((resolve, reject) => {
+            SmartBit._subscriptionListener = (payload) => {
+                if (payload.success) resolve(true);
+                reject(new Error(payload.message));
+            };
+            ws.send(JSON.stringify({
+                type: 'transaction',
+                txid,
+            }));
+        });
+    }
+
+    /**
      * @param {{success: boolean, message: string}}
      */
     static onSubscribeResponse(payload) {
@@ -189,14 +208,26 @@ class SmartBit {
     }
 
     /**
-     * @param {SmartBitTransaction} payload
+     * @param {SmartBitTransaction} transaction
      */
-    static onTransaction(payload) {}
+    static onTransaction(transaction) {
+        if (!transaction.block) {
+            SmartBit.subscribeTransaction(transaction.txid);
+        }
+        SmartBit.fire('transaction-added', SmartBit.normalizeTransaction(transaction));
+    }
 
     /**
      * @param {{txid: string, block: {height: number, hash: string}}} payload
      */
-    static onTransactionMined(payload) {}
+    static onTransactionMined(payload) {
+        SmartBit.fire('transaction-mined', {
+            txid: payload.txid,
+            block_height: payload.block.height,
+            block_time: Math.floor(Date.now() / 1000),
+            confirmations: 1,
+        });
+    }
 
     /**
      * @param {SmartBitTransaction} tx
@@ -236,7 +267,23 @@ class SmartBit {
             spent_txid: vout.spend_txid,
         };
     }
+
+    static on(eventName, callback) {
+        console.debug('Register listener for', eventName);
+        const listeners = SmartBit._listeners.get(eventName) || [];
+        listeners.push(callback);
+        SmartBit._listeners.set(eventName, listeners);
+    }
+
+    static fire(eventName, payload) {
+        console.debug('Fire callbacks for', eventName, payload);
+        const listeners = SmartBit._listeners.get(eventName) || [];
+        for (const callback of listeners) {
+            callback(payload);
+        }
+    }
 }
 
 SmartBit._ws = null;
 SmartBit._subscriptionListener = null;
+SmartBit._listeners = new Map();

@@ -17,6 +17,7 @@ class TxUtils {
      */
     static makeTransaction(keyPairs, inputs, to, amount, changeAddress, feePerByte = 1) {
         const estimatedFee = this.estimateFees(inputs.length, changeAddress ? 2 : 1, feePerByte);
+        console.debug('Estimated fee:', estimatedFee);
 
         // Calculate sum of all inputs (for later use)
         const inputValue = inputs.reduce((sum, input) => sum + input.witnessUtxo.value, 0);
@@ -29,6 +30,7 @@ class TxUtils {
             if (input1.hash !== input2.hash) return input1.hash < input2.hash ? -1 : 1;
             return input1.index - input2.index;
         });
+        console.debug('Inputs:', inputs);
 
         // Construct PSBT
         const psbt = new BitcoinJS.Psbt({ network: BitcoinJS.networks.testnet });
@@ -49,6 +51,7 @@ class TxUtils {
         outputs.sort((output1, output2) => {
             return (output1.value - output2.value) || (output1.address < output2.address ? -1 : 1);
         });
+        console.debug('Outputs:', outputs);
 
         // Add outputs
         psbt.addOutputs(outputs);
@@ -60,12 +63,12 @@ class TxUtils {
         psbt.finalizeAllInputs();
 
         // Validate that fee rate is similar to feePerByte argument
-        console.debug("Fee rates:", psbt.getFeeRate(), feePerByte, psbt.getFee());
+        console.debug("Fee rates:", psbt.getFeeRate(), psbt.getFee());
 
         // Extract tx
         const tx = psbt.extractTransaction();
 
-        console.log(tx.virtualSize());
+        console.debug('Size:', tx.virtualSize());
 
         // Return tx
         return tx;
@@ -156,9 +159,9 @@ class TxUtils {
     }
 }
 
-TxUtils.TX_BASE_VSIZE = 13;
-TxUtils.INPUT_VSIZE = 68;
-TxUtils.OUPUT_VSIZE = 30;
+TxUtils.TX_BASE_VSIZE = 11;
+TxUtils.INPUT_VSIZE = 91;
+TxUtils.OUPUT_VSIZE = 32;
 
 // The amount which does not warrant a change output, since it would cost more in fees to include than it's worth
 TxUtils.DUST_AMOUNT = TxUtils.INPUT_VSIZE * 2;

@@ -25,9 +25,9 @@
  * @typedef {
  *     txid: string,
  *     block_height?: number,
+ *     block_time?: number,
  *     confirmations: number,
  *     version: number,
- *     block_time?: number,
  *     seen_time: number,
  *     vsize: number,
  *     fee: number,
@@ -35,22 +35,6 @@
  *     outputs: Output[],
  * } Transaction
  */
-
-function nodeToNestedWitnessAddress(node) {
-    return BitcoinJS.payments.p2sh({
-        redeem: BitcoinJS.payments.p2wpkh({
-            pubkey: node.publicKey,
-            network: TEST.network,
-        }),
-    }).address;
-}
-
-function nodeToNestedWitnessRedeemScript(node) {
-    return BitcoinJS.payments.p2wpkh({
-        pubkey: node.publicKey,
-        network: TEST.network,
-    }).output;
-}
 
 async function updateAddressInfoActivity(addressInfo) {
     /** @type {AddressStats} */
@@ -154,7 +138,7 @@ var app = new Vue({
                 //         script: <Buffer of the output script>,
                 //         value: <output value>,
                 //     },
-                //     redeemScript: <Buffer of redeem script>,
+                //     redeemScript: <Buffer of redeem script>, // Added later when creating tx
                 // }
                 utxos.push({
                     hash: output.txid,
@@ -163,9 +147,9 @@ var app = new Vue({
                         script: NodeBuffer.Buffer.from(output.script, 'hex'),
                         value: output.value,
                     },
-                    redeemScript: nodeToNestedWitnessRedeemScript(this.accountExtPubKey.derivePath('0/0')),
-                    address, // Used for grouping outputs when selecting utxos for txs
-                    isInternal: internalAddresses.includes(address), // Only added for display in demo
+                    // Extra properties requried for tx building to work:
+                    address,
+                    isInternal: internalAddresses.includes(address),
                 });
             }
 
@@ -283,6 +267,8 @@ var app = new Vue({
     },
     mounted() {
         Nimiq.WasmHelper.doImport().then(() => this.isNimiqLoaded = true);
+        SmartBit.on('transaction-added', (tx) => this.addTransaction(tx));
+        SmartBit.on('transaction-mined', (partialTx) => this.updateTransaction(partialTx));
     },
     methods: {
         async fetchTxHistory(address) {
@@ -291,12 +277,38 @@ var app = new Vue({
             /** @type {{[hash: string]: Transaction}} */
             const txsObj = {};
             for (const tx of txs) {
-                txsObj[tx.txid] = Object.freeze(tx);
+                txsObj[tx.txid] = tx.block_height ? Object.freeze(tx) : tx;
             }
             this.txs = {
                 ...this.txs,
                 ...txsObj,
             };
+        },
+        addTransaction(tx) {
+            console.log('Adding transaction', tx);
+            // Mark our output addresses as active
+            for (const output of tx.outputs) {
+                let extOrInt = 0; // external
+                let addressInfo = this.ext_addresses.find(addrInfo => addrInfo.address === output.address);
+                if (!addressInfo) {
+                    addressInfo = this.int_addresses.find(addrInfo => addrInfo.address === output.address)
+                    extOrInt = 1; // internal index
+                }
+
+                if (!addressInfo) continue;
+                addressInfo.active = true;
+
+                // TODO: Generate new, unused, address
+            }
+            this.$set(this.txs, tx.txid, tx.block_height ? Object.freeze(tx) : tx);
+        },
+        updateTransaction(partialTx) {
+            console.debug('Updating transaction', partialTx);
+            const tx = {
+                ...this.txs[partialTx.txid],
+                partialTx,
+            };
+            this.addTransaction(tx);
         },
         signTransaction() {
             const to = this.txTo;
@@ -308,17 +320,33 @@ var app = new Vue({
             if (!utxos.length) throw new Error('Could not find UTXOs to match the amount!');
 
             // Derive keys for selected UTXOs
-            const paths = utxos.reduce((set, utxo) => {
-                // Find derivation indices for UTXO address
-                const addressInfo = (utxo.isInternal ? this.int_addresses : this.ext_addresses).find(addrInfo => addrInfo.address === utxo.address);
+            const keyMap = utxos.reduce((map, utxo) => {
+                const address = utxo.address;
+                if (map.has(address)) return map;
+
+                // Find derivation index for UTXO address
+                const addressInfo = (utxo.isInternal ? this.int_addresses : this.ext_addresses)
+                    .find(addrInfo => addrInfo.address === address);
                 if (!addressInfo) throw new Error('Cannot find address info for UTXO address');
 
-                set.add(`${utxo.isInternal ? 1 : 0}/${addressInfo.index}`);
-                return set;
-            }, new Set());
-            const keys = [...paths.values()].map(path => this.accountExtPrivKey.derivePath(path));
+                const key = this.accountExtPrivKey.derivePath(`${utxo.isInternal ? 1 : 0}/${addressInfo.index}`);
+                map.set(address, key);
+                return map;
+            }, new Map());
 
-            const tx = TxUtils.makeTransaction(keys, utxos, to, amount, requiresChange ? this.nextChangeAddress.address : null, feePerByte);
+            const redeemableUtxos = utxos.map(utxo => ({
+                ...utxo,
+                redeemScript: nodeToNestedWitnessRedeemScript(keyMap.get(utxo.address)),
+            }));
+
+            const tx = TxUtils.makeTransaction(
+                [...keyMap.values()],
+                redeemableUtxos,
+                to,
+                amount,
+                requiresChange ? this.nextChangeAddress.address : null,
+                feePerByte,
+            );
             this.signedTx = tx.toHex();
         },
         async broadcastTransaction() {
