@@ -258,7 +258,7 @@ class Timer extends Nimiq.Observable {
             { unit: 'hour', factor: 60 },
             { unit: 'day', factor: 24 },
         ];
-        for (const { unit, factor } of timeSteps) { // eslint-disable-line no-restricted-syntax
+        for (const { unit, factor } of timeSteps) {
             if (resultTime / factor < 1) {
                 break;
             } else {

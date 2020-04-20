@@ -60,6 +60,8 @@
     "types/Keyguard.d.ts",
     "types/ErrorContainer.d.ts",
     "types/MessagePrefix.d.ts",
+    "types/BitcoinJS.d.ts",
+    "types/NodeBuffer.d.ts",
     "src/**/*.js",
     "tests/**/*.js"
   ],
@@ -69,6 +71,7 @@
     "demos",
     "instrumented",
     "coverage",
-    "src/lib/QrScannerWorker.js"
+    "src/lib/QrScannerWorker.js",
+    "src/lib/bitcoin/vendor/*.js",
   ]
 }
