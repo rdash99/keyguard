@@ -95,14 +95,13 @@ class SmartBit {
     static async fetchTxs(address, next) {
         /** @type {{transactions: SmartBitTransaction[], next?: string}} */
         const result = await SmartBit.fetchApi('/address/' + address + (next ? '?next=' + next : '')).then(res => ({
-            transactions: res.address.transactions,
+            transactions: res.address.transactions.map(SmartBit.normalizeTransaction),
             next: res.address.transaction_paging.next,
         }));
-        result.transactions = result.transactions.map(SmartBit.normalizeTransaction);
 
         if (result.next) {
             // Recurse
-            result.transactions.concat(await SmartBit.fetchTxs(address, result.next));
+            result.transactions = result.transactions.concat(await SmartBit.fetchTxs(address, result.next));
         }
 
         return result.transactions;
@@ -224,7 +223,7 @@ class SmartBit {
         SmartBit.fire('transaction-mined', {
             txid: payload.txid,
             block_height: payload.block.height,
-            block_time: Math.floor(Date.now() / 1000),
+            block_time: Math.floor(Date.now() / 1000), // FIXME: Use actual block time
             confirmations: 1,
         });
     }
