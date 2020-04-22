@@ -162,17 +162,9 @@ class SmartBit {
      * @returns {Promise<boolean>}
      */
     static async subscribeAddresses(address) {
-        const ws = await SmartBit.getWebsocket();
-
-        return new Promise((resolve, reject) => {
-            SmartBit._subscriptionListener = (payload) => {
-                if (payload.success) resolve(true);
-                reject(new Error(payload.message));
-            };
-            ws.send(JSON.stringify({
-                type: 'address',
-                address,
-            }));
+        return SmartBit.subscribe({
+            type: 'address',
+            address,
         });
     }
 
@@ -181,18 +173,39 @@ class SmartBit {
      * @returns {Promise<boolean>}
      */
     static async subscribeTransaction(txid) {
-        const ws = await SmartBit.getWebsocket();
+        return SmartBit.subscribe({
+            type: 'transaction',
+            txid,
+        });
+    }
 
-        return new Promise((resolve, reject) => {
+    /**
+     * @param {{type: string, address?: string, txid?: string}} subscription
+     * @returns {Promise<true>}
+     */
+    static async subscribe(subscription) {
+        let resolve;
+        let reject;
+
+        const promise = new Promise((res, rej) => {
+            resolve = res;
+            reject = rej;
+        });
+
+        const callback = async () => {
             SmartBit._subscriptionListener = (payload) => {
                 if (payload.success) resolve(true);
                 reject(new Error(payload.message));
             };
-            ws.send(JSON.stringify({
-                type: 'transaction',
-                txid,
-            }));
-        });
+            const ws = await SmartBit.getWebsocket();
+            ws.send(JSON.stringify(subscription));
+            return promise; // continue the queue
+        };
+
+        // Cannot use finally() here, as we need the return value from callback to continue the queue
+        SmartBit._subscriptionQueue = SmartBit._subscriptionQueue.then(callback, callback);
+
+        return promise;
     }
 
     /**
@@ -202,8 +215,9 @@ class SmartBit {
         if (!SmartBit._subscriptionListener) {
             throw new Error('Received subscription response, but no listener is registered');
         }
-        SmartBit._subscriptionListener(payload);
+        const callback = SmartBit._subscriptionListener;
         SmartBit._subscriptionListener = null;
+        callback(payload);
     }
 
     /**
@@ -286,3 +300,4 @@ class SmartBit {
 SmartBit._ws = null;
 SmartBit._subscriptionListener = null;
 SmartBit._listeners = new Map();
+SmartBit._subscriptionQueue = Promise.resolve();
