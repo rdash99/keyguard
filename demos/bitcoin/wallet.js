@@ -277,7 +277,10 @@ var app = new Vue({
             /** @type {{[hash: string]: Transaction}} */
             const txsObj = {};
             for (const tx of txs) {
-                txsObj[tx.txid] = tx.block_height ? Object.freeze(tx) : tx;
+                if (!tx.block_height) {
+                    SmartBit.subscribeTransaction(tx.txid);
+                }
+                txsObj[tx.txid] = tx;
             }
             this.txs = {
                 ...this.txs,
@@ -291,7 +294,7 @@ var app = new Vue({
                 let extOrInt = 0; // external
                 let addressInfo = this.ext_addresses.find(addrInfo => addrInfo.address === output.address);
                 if (!addressInfo) {
-                    addressInfo = this.int_addresses.find(addrInfo => addrInfo.address === output.address)
+                    addressInfo = this.int_addresses.find(addrInfo => addrInfo.address === output.address);
                     extOrInt = 1; // internal index
                 }
 
@@ -300,15 +303,15 @@ var app = new Vue({
 
                 // TODO: Generate new, unused, address
             }
-            this.$set(this.txs, tx.txid, tx.block_height ? Object.freeze(tx) : tx);
+            this.$set(this.txs, tx.txid, tx);
         },
         updateTransaction(partialTx) {
             console.debug('Updating transaction', partialTx);
-            const tx = {
-                ...this.txs[partialTx.txid],
-                partialTx,
-            };
-            this.addTransaction(tx);
+            const tx = this.txs[partialTx.txid];
+            for(const key in partialTx) {
+                if (key === 'txid') continue;
+                tx[key] = partialTx[key];
+            }
         },
         signTransaction() {
             const to = this.txTo;
